@@ -11,6 +11,7 @@ import asyncio
 from bleak import BleakClient
 import json
 import os
+import TestSequence
 
 
 
@@ -51,7 +52,7 @@ class FitnessApp:
         self.ftp = 200
         self.target_hr = 140
         self.power=0
-        self.cadence=None
+        self.cadence=0.0
         # Live stats variables
         self.elapsed_time = tk.StringVar(value="00:00")
         self.avg_power = tk.StringVar(value="0 W")
@@ -134,7 +135,43 @@ class FitnessApp:
         self.hr_label.config(text=f"{self.target_hr} bpm")
 
     def start_sequence(self):
-        print(f"Starting sequence with FTP={self.ftp}, Target HR={self.target_hr}")
+        if not hasattr(self, "power_client"):
+            print("Trainer not connected")
+            return
+
+        # extract current values safely
+        def get_hr():
+            try:
+                return int(self.current_hr.get().split()[0])
+            except:
+                return 0
+
+        def get_power():
+            try:
+                return int(self.current_power.get().split()[0])
+            except:
+                return 0
+
+        def get_cadence():
+            try:
+                return int(self.current_cadence.get().split()[0])
+            except:
+                return 0
+
+        # start sequence
+        seq = TestSequence.TestSequence(
+            power_client=self.power_client,
+            get_current_hr=get_hr,
+            get_current_power=get_power,
+            get_current_cadence=get_cadence,
+            set_power=self.set_erg_power,
+            ftp=self.ftp,
+            output_file="sequence_results.json"
+        )
+
+        run_async_task(seq.run())
+
+
 
     def save_config(self):
         config = {
@@ -222,7 +259,7 @@ class FitnessApp:
     async def on_power_trainer_connected(self, client):
         self.power_client = client
         # ensure you have a StringVar for cadence
-        self.current_cadence = tk.StringVar(value="0 RPM")
+        #self.current_cadence = tk.StringVar(value="0 RPM")
         # subscribe
         await client.start_notify(
             self.btle.CYCLING_POWER_MEASUREMENT_UUID,
@@ -255,26 +292,26 @@ class FitnessApp:
             self._last_crank_event_time = evt
             # save for next
             print(self.cadence)
-            self.cadence=cadence
             self._last_crank_revs = revs
             self._last_crank_event_time = evt
 
         # update GUI
         self.root.after(0, lambda: self.current_power.set(f"{self.power} W"))
+        self.root.after(0, lambda: self.current_cadence.set(f"{self.cadence:.0f} RPM"))
         if cadence is not None:
-            self.root.after(0, lambda: self.current_cadence.set(f"{cadence:.0f} RPM"))
             self.cadence = cadence
             
     async def set_erg_power(self, watts: int):
         """
-        Send the FTMS ‘Set Target Power’ (op‑code 0x06) to the trainer.
+        Send the FTMS ‘Set Target Power’ (op‑code 0x05) to the trainer.
         """
-        FTMS_CTRL = self.btle.CYCLING_POWER_CONTROL_UUID  # 0x2AD9
+        FTMS_CTRL = self.btle.FTMS_CTRL  # Correct UUID for the control point
         # pack: <B = op‑code, H = uint16 watts
-        payload = struct.pack("<BH", 0x06, watts)
-        # write with response so we know it went through
+        payload = struct.pack("<BH", 0x05, watts)
+        print(payload)
         await self.power_client.write_gatt_char(FTMS_CTRL, payload, response=True)
         print(f"Asked trainer to hold {watts} W")
+
 
 
     async def on_hr_monitor_connected(self, client):

@@ -5,6 +5,7 @@ class BTLEDeviceConnector:
     HEART_RATE_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
     CYCLING_POWER_CONTROL_UUID = "00002ad9-0000-1000-8000-00805f9b34fb"
     CYCLING_POWER_MEASUREMENT_UUID = "00002a63-0000-1000-8000-00805f9b34fb"
+    FTMS_CTRL = "00002ad9-0000-1000-8000-00805f9b34fb"
 
 
     async def device_has_characteristic(self, address, uuid):
