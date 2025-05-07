@@ -5,7 +5,7 @@ import json
 
 class TestSequence:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
-                 set_power, ftp:int, zone2_pct:float=0.7,
+                 set_power, ftp:int, zone2_pct:float=0.6,
                  hr_tolerance:int=2, stabilize_secs:int=20,
                  output_file:str="test_results.json"):
         self.client = power_client
@@ -30,8 +30,18 @@ class TestSequence:
             "cadence": self.get_current_cadence()
         }
         self.samples.append(sample)
-
-    async def wait_hr_stable(self):
+    async def wait_cadence_high(self):
+        print(f"Wait for the cadence to increase")
+        while True:
+            await asyncio.sleep(1)
+            self.log_sample()
+            cadence=self.get_current_cadence()
+            if cadence>60:
+                print(f"Cadence is {cadence} RPM. Starting Test")
+                return True
+            
+        
+    async def wait_hr_stable(self,time_duration=20):
         """Wait until HR is stable for the given time."""
         print(f"Waiting for HR to stabilize ±{self.hr_tol} bpm...")
         hr0 = self.get_current_hr()
@@ -45,29 +55,30 @@ class TestSequence:
                 hr0 = hr
                 last_change = time.time()
                 print(f"  HR jumped to {hr} → resetting timer")
-            elif time.time() - last_change >= self.stabilize_secs:
+            elif time.time() - last_change >= time_duration:
                 print(f"  HR stabilized at {hr} bpm")
                 return hr
 
     async def run(self):
         self.samples = []
         self._start_time = time.time()
-
+        await self.wait_cadence_high()
+        await asyncio.sleep(1)
         # enable ERG mode first (Request Control + Indication setup)
         await self.enable_erg_control()
         await asyncio.sleep(1)
         # STEP 1: zone2
         print(f"STEP 1: setting {self.zone2_power} W")
         try:
-            await self.set_power(self.zone2_power)
+            await self.set_power(int(self.zone2_power))
         except Exception as e:
             print("set_power failed:", e)
-        hr1 = await self.wait_hr_stable()
+        hr1 = await self.wait_hr_stable(time_duration=30)
 
         # STEP 2: FTP
-        print(f"STEP 2: setting {self.ftp} W")
-        await self.set_power(self.ftp)
-        hr2 = await self.wait_hr_stable()
+        print(f"STEP 2: setting {self.ftp*0.9} W")
+        await self.set_power(int(self.ftp*0.9))
+        hr2 = await self.wait_hr_stable(time_duration=30)
 
         elapsed = time.time() - self._start_time
         result = {
