@@ -1,35 +1,47 @@
 import asyncio
 import time
-import struct
 import json
-import CHR
+from simple_pid import PID
+import Plotter
 
-class TestSequence:
+class Workout:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
-                 set_power, ftp:int, zone2_pct:float=0.6,
-                 hr_tolerance:int=2, stabilize_secs:int=20,
-                 output_file:str="test_results.json",log=None):
+                 set_power, ftp:int,PID_params,get_target_hr,get_run,set_elapsed, set_avg_power,
+                 output_file:str="test_results.json",log=None,max_step=10):
         self.client = power_client
         self.get_current_hr = get_current_hr
         self.get_current_power = get_current_power
         self.get_current_cadence = get_current_cadence
         self.set_power = set_power
         self.ftp = ftp
-        self.zone2_power = int(zone2_pct * ftp)
-        self.hr_tol = hr_tolerance
-        self.stabilize_secs = stabilize_secs
+        self.max_step=max_step
         self.outfile = output_file
         self.samples = []
+        self.set_elapsed = set_elapsed
+        self.set_avg_power = set_avg_power
+        self._power_accumulator = 0.0
+        self._power_count = 0
         self._start_time = None
         self.log = log or (lambda msg: None)
+        self.get_target_hr=get_target_hr
+        self.get_run=get_run
+        self.kp=PID_params['Kp']*35
+        self.Ki=self.kp/PID_params['Ti']*10
+        self.Kd=self.kp*PID_params['Td']
+        self.pid = PID(self.kp, self.Ki, self.Kd, setpoint=self.get_target_hr())
+        print(f"Kp: {self.pid.Kp:.4f}, Ki: {self.pid.Ki:.4f}, Kd: {self.pid.Kd:.4f}")
+        self.pid.output_limits = (0.3*self.ftp, 1.3*self.ftp)
+
 
     def log_sample(self):
         now = time.time()
         sample = {
             "timestamp": round(now - self._start_time, 1),
             "hr": self.get_current_hr(),
+            "target_hr":self.get_target_hr(),
             "power": self.get_current_power(),
             "cadence": self.get_current_cadence()
+            
         }
         self.samples.append(sample)
     async def wait_cadence_high(self):
@@ -42,73 +54,59 @@ class TestSequence:
                 print(f"Cadence is {cadence} RPM. Starting Test")
                 return True
             
-        
-    async def wait_hr_stable(self,time_duration=20):
-        """Wait until HR is stable for the given time."""
-        print(f"Waiting for HR to stabilize ±{self.hr_tol} bpm...")
-        hr0 = self.get_current_hr()
-        last_change = time.time()
-        while True:
-            
-            await asyncio.sleep(1)
-            self.log_sample()
-            hr = self.get_current_hr()
-            if abs(hr - hr0) > self.hr_tol:
-                hr0 = hr
-                last_change = time.time()
-                print(f"  HR jumped to {hr} → resetting timer")
-            elif time.time() - last_change >= time_duration:
-                print(f"  HR stabilized at {hr} bpm")
-                return hr,last_change
 
     async def run(self):
+        print("Entered run")
         self.samples = []
+        avg=0
         self._start_time = time.time()
         self.log("Start to pedal with a cadence of 60 RPM or higher!")
         await asyncio.sleep(3)
-        self.log("Make shure during the test to keep breathing steadily and dont move on the bike too much. Keep the cadence steady!")
         await self.wait_cadence_high()
-        self.log(f"Setting power to {self.zone2_power} W. Get ready!")
+        self.log(f"Starting the control loop")
         await asyncio.sleep(1)
         # enable ERG mode first (Request Control + Indication setup)
         await self.enable_erg_control()
+        self.log(f"ERG activated")
         await asyncio.sleep(1)
-        # STEP 1: zone2
-        print(f"STEP 1: setting {self.zone2_power} W")
-        try:
-            await self.set_power(int(self.zone2_power))
-        except Exception as e:
-            print("set_power failed:", e)
-        hr1,_ = await self.wait_hr_stable(time_duration=30)
-        self.hr1_time=time.time()-self._start_time
-        self.log(f"HR stable. Get ready for {self.ftp*0.9} W")
-        await asyncio.sleep(3)
+        
+        while self.get_run():
+            # compute elapsed
+            elapsed = time.time() - self._start_time
+            self.set_elapsed(elapsed)
+            target_hr=self.get_target_hr()
+            current_hr=self.get_current_hr()
+            # update running average
+            pw = self.get_current_power()
+            self._power_accumulator += pw
+            self._power_count   += 1
+            avg = self._power_accumulator / self._power_count
+            self.set_avg_power(avg)
 
-        # STEP 2: FTP
-        print(f"STEP 2: setting {self.ftp*0.9} W")
-        await self.set_power(int(self.ftp*0.9))
-        self.log(f"Make shure to keep a steady cadence and dont move too much.")
-        hr2,self.hr2_time = await self.wait_hr_stable(time_duration=30)
-        self.hr2_time=self.hr2_time-self._start_time
-        await self.set_power(int(self.zone2_power))
-        self.log(f"HR stable. You finished the test and the parameters are being calculated. You can stop now.")
+            # PID step
+            self.pid.setpoint = target_hr
+            power = self.pid(current_hr)
+            #if pw-power>self.max_step:
+            #    power=pw-self.max_step
+            #elif pw-power<self.max_step:
+            #    power=pw+self.max_step
+            
+                
+            self.log(f"Setting power to {power:.0f} W")
+            await self.set_power(int(power))
+
+            self.log_sample()
+            await asyncio.sleep(1)
+        await self.set_power(int(100))
         elapsed = time.time() - self._start_time
         result = {
             "start_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._start_time)),
-            "zone2_power": self.zone2_power,
-            "zone4_power":self.ftp*0.9,
-            "Ks":self.ftp*0.9-self.zone2_power,
-            "hr_after_zone2": hr1,
             "ftp_power": self.ftp,
-            "hr_after_ftp": hr2,
+            "Averadge":avg,
             "elapsed_s": round(elapsed, 1),
-            "T1":self.hr1_time,
-            "T2":self.hr2_time,
             "samples": self.samples
         }
-        data=CHR.fit_pt2_from_samples(result,True)
-        pid_params_0 = data["pid_chr_0_percent"]
-
+        Plotter.plot_power_and_hr(result)
 
         try:
             with open(self.outfile, "a") as f:
@@ -116,7 +114,6 @@ class TestSequence:
         except Exception as e:
             print("Failed to save:", e)
 
-        return result,pid_params_0
     
     async def enable_erg_control(self):
         FTMS_CTRL = "00002ad9-0000-1000-8000-00805f9b34fb"
@@ -145,7 +142,3 @@ class TestSequence:
 
     def _ftms_response_handler(self, sender, data):
         print(f"[FTMS RESP] {data.hex()}")
-
-
-
-

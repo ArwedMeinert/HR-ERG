@@ -12,6 +12,8 @@ from bleak import BleakClient
 import json
 import os
 import TestSequence
+import WorkoutSequence
+from datetime import datetime
 
 
 
@@ -70,9 +72,12 @@ class FitnessApp:
         self._last_crank_revs = None         # type: int
         self._last_crank_event_time = None   # type: int 
         self.current_cadence=tk.StringVar(value="0 RPM")
+        self.training_active = False  # Add this in __init__
+
         self.load_config()
         self.build_gui()
-
+        self.update_pid_label()
+        
     def build_gui(self):
         # Power Trainer row
         tk.Label(self.root, text="Power Trainer:").grid(row=0, column=0, sticky="e")
@@ -101,8 +106,23 @@ class FitnessApp:
         tk.Button(self.root, text="-", command=self.decrease_hr, width=3).grid(row=4, column=2)
         tk.Button(self.root, text="+", command=self.increase_hr, width=3).grid(row=4, column=3)
 
+        # PID Display (row 5 before stats start at 6)
+        self.pid_label = tk.Label(self.root, text="PID: Kp=-, Ti=-, Td=-", font=("Arial", 10))
+        self.pid_label.grid(row=5, column=2, columnspan=4, sticky="w", padx=10)
+
+
         # Separator
-        ttk.Separator(self.root, orient="horizontal").grid(row=5, columnspan=4, sticky="ew", pady=10)
+        ttk.Separator(self.root, orient="horizontal").grid(row=5, columnspan=2, sticky="ew", pady=10)
+
+        
+        # Start Training Button
+        self.start_training_button = tk.Button(
+            self.root, text="Start Training", bg="lightgreen", width=20,
+            command=self.toggle_training
+        )
+        self.start_training_button.grid(row=6, column=0, columnspan=2, pady=5, sticky="e")
+
+
 
         # Stats display (including cadence)
         stats = [
@@ -112,9 +132,81 @@ class FitnessApp:
             ("Current Heart Rate:", self.current_hr),
             ("Cadence:", self.current_cadence)
         ]
-        for idx, (label, var) in enumerate(stats, start=6):
+        for idx, (label, var) in enumerate(stats, start=7):
             tk.Label(self.root, text=label).grid(row=idx, column=0, sticky="e")
             tk.Label(self.root, textvariable=var).grid(row=idx, column=1, sticky="w")
+        
+                # Separator before text output area
+        ttk.Separator(self.root, orient="horizontal").grid(row=12, columnspan=4, sticky="ew", pady=10)
+
+        # Log/output screen
+        tk.Label(self.root, text="Console Output:").grid(row=13, column=0, sticky="nw")
+        self.log_box = tk.Text(self.root, height=10, width=50, wrap="word", state="disabled", bg="#f0f0f0")
+        self.log_box.grid(row=12, column=1, columnspan=3, sticky="w")
+
+    def log_message(self, message):
+        self.log_box.config(state="normal")
+        self.log_box.insert("end", message + "\n")
+        self.log_box.see("end")  # Auto-scroll to the bottom
+        self.log_box.config(state="disabled")
+
+
+    def toggle_training(self):
+        self.training_active = not self.training_active
+        if self.training_active:
+            
+            self.start_training_button.config(text="Training Running", bg="red")
+            self.log_message("Training started")
+            print(f"Kp: {self.pid_params['Kp']}, Ki: {self.pid_params['Ti']}, Kd: {self.pid_params['Td']}")
+
+            # make sure we have a client
+            if not hasattr(self, "power_client"):
+                self.log_message("Trainer not connected")
+                self.toggle_training()  # stop
+                return
+
+            # helper getters
+            get_hr = lambda: int(self.current_hr.get().split()[0] or 0)
+            get_pow = lambda: int(self.current_power.get().split()[0] or 0)
+            get_cad = lambda: int(self.current_cadence.get().split()[0] or 0)
+            get_target_hr = lambda: self.target_hr
+            get_run = lambda: self.training_active
+            def set_elapsed(elapsed_s):
+                # format as mm:ss or however you like
+                m, s = divmod(int(elapsed_s), 60)
+                self.elapsed_time.set(f"{m:02d}:{s:02d}")
+
+            def set_avg_power(p):
+                self.avg_power.set(f"{int(p)} W")
+        
+
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            seq = WorkoutSequence.Workout(
+                power_client=self.power_client,
+                get_current_hr=get_hr,
+                get_current_power=get_pow,
+                get_current_cadence=get_cad,
+                set_power=self.set_erg_power,
+                ftp=self.ftp,
+                PID_params=self.pid_params,
+                get_target_hr=get_target_hr,
+                get_run=get_run,
+                set_elapsed=set_elapsed,
+                set_avg_power=set_avg_power,
+                output_file=f"Workouts_{timestamp}.json",
+                log=self.log_message
+            )
+
+            # schedule it and handle completion
+            run_async_task(seq.run())
+
+
+        else:
+            self.start_training_button.config(text="Start Training", bg="lightgreen")
+            self.log_message("Training stopped")
+
+
+
 
     # FTP controls
     def increase_ftp(self):
@@ -125,6 +217,10 @@ class FitnessApp:
         self.ftp -= 5
         self.ftp_label.config(text=f"{self.ftp} W")
 
+    def update_pid_label(self):
+        p = self.pid_params
+        self.pid_label.config(text=f"PID: Kp={p['Kp']:.4f}, Ti={p['Ti']:.1f}, Td={p['Td']:.1f}")
+    
     # HR target controls
     def increase_hr(self):
         self.target_hr += 1
@@ -158,6 +254,7 @@ class FitnessApp:
             except:
                 return 0
 
+
         # start sequence
         seq = TestSequence.TestSequence(
             power_client=self.power_client,
@@ -166,23 +263,31 @@ class FitnessApp:
             get_current_cadence=get_cadence,
             set_power=self.set_erg_power,
             ftp=self.ftp,
-            output_file="sequence_results.json"
+            output_file="sequence_results.json",
+            log=self.log_message
         )
 
-        run_async_task(seq.run())
-
+        _,self.pid_params=run_async_task(seq.run())
+        self.update_pid_label()
 
 
     def save_config(self):
-        config = {
-            "ftp": self.ftp,
-            "target_hr": self.target_hr,
-            "power_trainer": self.connected_power_trainer_name.get(),
-            "hr_monitor": self.connected_hr_monitor_name.get()
-        }
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f)
-        print(f"Configuration saved to {CONFIG_FILE}")
+        try:
+            config = {
+                "ftp": self.ftp,
+                "target_hr": self.target_hr,
+                "power_trainer": self.connected_power_trainer_name.get() if self.connected_power_trainer_name else "",
+                "hr_monitor": self.connected_hr_monitor_name.get() if self.connected_hr_monitor_name else "",
+                "pid_params": self.pid_params
+            }
+
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config, f, indent=4)  # Pretty-print for readability
+
+            print(f"Configuration saved to {CONFIG_FILE}")
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
         
     def load_config(self):
         if not os.path.exists(CONFIG_FILE):
@@ -190,13 +295,19 @@ class FitnessApp:
         try:
             with open(CONFIG_FILE, 'r') as f:
                 config = json.load(f)
-            # restore values
+
+            # Restore values with defaults
             self.ftp = config.get("ftp", self.ftp)
             self.target_hr = config.get("target_hr", self.target_hr)
-            # update labels after build_gui sets them
-            print(f"Loaded config: FTP={self.ftp}, Target HR={self.target_hr}")
+            self.pid_params = config.get("pid_params", {
+                "Kp": -1,
+                "Ti": -1,
+                "Td": -1
+            })
+            print(f"Loaded config: FTP={self.ftp}, Target HR={self.target_hr}, PID={self.pid_params}")
         except Exception as e:
             print(f"Failed to load config: {e}")
+
             
     def on_closing(self):
         """Called when the user closes the window—disconnect all BLE clients first."""

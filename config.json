@@ -1,1 +1,11 @@
-{"ftp": 380, "target_hr": 140, "power_trainer": "Not connected", "hr_monitor": "fenix 7X"}
+{
+    "ftp": 380,
+    "target_hr": 141,
+    "power_trainer": "Not connected",
+    "hr_monitor": "fenix 7X",
+    "pid_params": {
+        "Kp": 0.002408,
+        "Ti": 9.43,
+        "Td": 21.2
+    }
+}

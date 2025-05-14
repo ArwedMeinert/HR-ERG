@@ -14,6 +14,11 @@ def plot_power_and_hr(data_json):
     power = [sample['power'] for sample in samples]
     hr = [sample['hr'] for sample in samples]
 
+    # Only extract target_hr if present in all samples
+    has_targets = all("target_hr" in s for s in samples)
+    if has_targets:
+        targets = [s["target_hr"] for s in samples]
+
     # Create the plot
     fig, ax1 = plt.subplots()
 
@@ -27,15 +32,21 @@ def plot_power_and_hr(data_json):
     ax2 = ax1.twinx()
     ax2.set_ylabel('Heart Rate (bpm)', color='tab:blue')
     ax2.plot(time, hr, color='tab:blue', label='Heart Rate')
+
+    # Plot target HR if available
+    if has_targets:
+        ax2.plot(time, targets, color='tab:green', linestyle='--', label='Target HR')
+
     ax2.tick_params(axis='y', labelcolor='tab:blue')
 
-    # Optional: Add title and grid
+    # Add title, legend and grid
     plt.title('Power and Heart Rate over Time')
     fig.tight_layout()
+    fig.legend(loc='upper left', bbox_to_anchor=(0.1, 0.9))
     plt.grid(True)
     plt.show()
 
 if __name__ == "__main__":
-    with open('sequence_results.json') as f:
+    with open('Workouts_2025-05-14_14-40-02.json') as f:
         data_json = f.read()
         plot_power_and_hr(data_json)
