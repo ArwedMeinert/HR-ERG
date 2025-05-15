@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
 import asyncio
-from bleak import BleakScanner, BleakClient
 from threading import Thread
 from BTLE import BTLEDeviceConnector
 import struct
@@ -14,6 +13,7 @@ import os
 import TestSequence
 import WorkoutSequence
 from datetime import datetime
+import os
 
 
 
@@ -193,7 +193,7 @@ class FitnessApp:
                 get_run=get_run,
                 set_elapsed=set_elapsed,
                 set_avg_power=set_avg_power,
-                output_file=f"Workouts_{timestamp}.json",
+                output_file=os.path.join("Workouts", f"Workouts_{timestamp}.json"),
                 log=self.log_message
             )
 
@@ -256,6 +256,7 @@ class FitnessApp:
 
 
         # start sequence
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         seq = TestSequence.TestSequence(
             power_client=self.power_client,
             get_current_hr=get_hr,
@@ -263,7 +264,7 @@ class FitnessApp:
             get_current_cadence=get_cadence,
             set_power=self.set_erg_power,
             ftp=self.ftp,
-            output_file="sequence_results.json",
+            output_file = os.path.join("StepResponseTests", f"Test_Sequence_{timestamp}.json"),
             log=self.log_message
         )
 

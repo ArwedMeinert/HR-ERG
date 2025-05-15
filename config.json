@@ -2,7 +2,7 @@
     "ftp": 380,
     "target_hr": 141,
     "power_trainer": "Not connected",
-    "hr_monitor": "fenix 7X",
+    "hr_monitor": "Not connected",
     "pid_params": {
         "Kp": 0.002408,
         "Ti": 9.43,
