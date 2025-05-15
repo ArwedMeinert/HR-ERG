@@ -1,0 +1,10 @@
+{
+    "ftp": 200,
+    "target_hr": 140,
+    "pid_params": {
+        "Kp": -1,
+        "Ti": -1,
+        "Td": -1
+    },
+    "aggressiveness": 1.0
+}

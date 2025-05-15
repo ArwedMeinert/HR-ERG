@@ -43,7 +43,8 @@ def parse_heart_rate(data: bytearray) -> int:
         return data[1]
     return int.from_bytes(data[1:3], byteorder='little')
 
-CONFIG_FILE = 'config.json'
+CONFIG_DIR = "configs"
+LAST_USER_FILE = os.path.join(CONFIG_DIR, "last_user.json")
 
 class FitnessApp:
     def __init__(self, root):
@@ -52,6 +53,7 @@ class FitnessApp:
         self.COLOR_START="SteelBlue1"
         self.COLOR_OK="lawn green"
 
+        
         self.root = root
         self.root.title("Fitness Control Panel")
 
@@ -70,6 +72,9 @@ class FitnessApp:
         self.btle = BTLEDeviceConnector()
         self.connected_power_trainer_name = tk.StringVar(value="Not connected")
         self.connected_hr_monitor_name = tk.StringVar(value="Not connected")
+        
+        self.connected_power_trainer_address=""
+        self.connected_hr_monitor_address=""
 
         self.kp_mult = 50#35
         self.ki_mult = 10#10
@@ -82,13 +87,15 @@ class FitnessApp:
         self._last_crank_revs = None         # type: int
         self._last_crank_event_time = None   # type: int 
         self.current_cadence=tk.StringVar(value="0 RPM")
+        self.mult=tk.DoubleVar(value=0)
         self.training_active = False  # Add this in __init__
-
-        self.load_config()
+        self.pid_params_import = {"Kp": -1, "Ti": -1, "Td": -1}
+        self.build_gui()
+        self.load_last_user()
         self.pid_available=not(self.pid_params_import.get("Kp", -1) < 0 or self.pid_params_import.get("Ti", -1) < 0 or self.pid_params_import.get("Td", -1) < 0)
         self.hr_connected=False
         self.power_connected=False
-        self.build_gui()
+        
         mult_val = self.mult.get()
         self.pid_params={
                 "Kp": self.pid_params_import["Kp"]*self.kp_mult*mult_val,
@@ -96,6 +103,17 @@ class FitnessApp:
                 "Td": self.pid_params_import["Td"]*self.kd_mult*mult_val
             }
         self.update_pid_label()
+        
+        if not self.pid_available:
+            self.ftp_min_button.config(bg=self.COLOR_START)
+            self.ftp_max_button.config(bg=self.COLOR_START)
+            self.hr_min_button.config(bg=self.COLOR_DISABLED)
+            self.hr_max_button.config(bg=self.COLOR_DISABLED)
+        else:
+            self.ftp_min_button.config(bg=self.COLOR_DISABLED)
+            self.ftp_max_button.config(bg=self.COLOR_DISABLED)
+            self.hr_min_button.config(bg=self.COLOR_START)
+            self.hr_max_button.config(bg=self.COLOR_START)
         #self.update_sequence_button_color()
         
     def build_gui(self):
@@ -105,6 +123,16 @@ class FitnessApp:
         self.power_button.grid(row=0, column=1)
         tk.Label(self.root, textvariable=self.connected_power_trainer_name).grid(row=0, column=2, sticky="w")
 
+        
+        # User profile input and button
+        tk.Label(self.root, text="User:").grid(row=0, column=2, sticky="e")
+        self.user_entry = tk.Entry(self.root)
+        self.user_entry.grid(row=0, column=3, sticky="w")
+
+        self.load_user_button = tk.Button(self.root, text="Load User", command=self.load_user_config, bg=self.COLOR_START)
+        self.load_user_button.grid(row=0, column=4, padx=(5, 0))
+        
+        
         # HR Monitor row
         tk.Label(self.root, text="HR Monitor:").grid(row=1, column=0, sticky="e")
         self.hr_button=tk.Button(self.root,text="Search",command=self.run_script_2,bg=self.COLOR_ACTION)
@@ -115,6 +143,8 @@ class FitnessApp:
         self.start_sequence_button=tk.Button(self.root,text="Start Sequence",command=self.start_sequence,width=20)
         self.start_sequence_button.config(bg=self.COLOR_DISABLED)
         self.start_sequence_button.grid(row=2, column=0, columnspan=2, pady=10)
+        
+        
 
         # FTP Setting
         tk.Label(self.root, text="FTP:").grid(row=3, column=0, sticky="e")
@@ -136,16 +166,7 @@ class FitnessApp:
         self.hr_max_button = tk.Button(self.root, text="+", command=self.increase_hr, width=3, bg=self.COLOR_START)
         self.hr_max_button.grid(row=4, column=3)
 
-        if not self.pid_available:
-            self.ftp_min_button.config(bg=self.COLOR_START)
-            self.ftp_max_button.config(bg=self.COLOR_START)
-            self.hr_min_button.config(bg=self.COLOR_DISABLED)
-            self.hr_max_button.config(bg=self.COLOR_DISABLED)
-        else:
-            self.ftp_min_button.config(bg=self.COLOR_DISABLED)
-            self.ftp_max_button.config(bg=self.COLOR_DISABLED)
-            self.hr_min_button.config(bg=self.COLOR_START)
-            self.hr_max_button.config(bg=self.COLOR_START)
+        
             
             
         # PID Display (row 5 before stats start at 6)
@@ -168,16 +189,7 @@ class FitnessApp:
         # PID Aggressiveness Slider (row 6, column 2)
         
 
-        def update_aggressiveness(val):
-            val = float(val)
-            self.mult.set(val)
-            self.pid_params={
-                "Kp": self.pid_params_import["Kp"]*self.kp_mult*val,
-                "Ti": self.pid_params_import["Ti"]*self.ki_mult*val,
-                "Td": self.pid_params_import["Td"]*self.kd_mult*val
-            }
-            self.update_pid_label()
-            self.aggressiveness_label.config(text=f"Aggressiveness: {val:.2f}x")
+        
 
         self.aggressiveness_slider = ttk.Scale(
             self.root,
@@ -185,13 +197,12 @@ class FitnessApp:
             to=3.0,
             orient="vertical",
             variable=self.mult,
-            command=update_aggressiveness
+            command=self.update_aggressiveness
         )
         self.aggressiveness_slider.grid(row=7, column=2, rowspan=5, sticky="ns", padx=(20, 0), pady=(0, 10))
 
         self.aggressiveness_label = tk.Label(self.root, text="Aggressiveness: 1.00x")
         self.aggressiveness_label.grid(row=6, column=2, padx=(20, 0), sticky="s")
-        update_aggressiveness(self.mult.get())
 
         # Stats display (including cadence)
         stats = [
@@ -213,6 +224,18 @@ class FitnessApp:
         self.log_box = tk.Text(self.root, height=10, width=50, wrap="word", state="disabled", bg="#f0f0f0")
         self.log_box.grid(row=12, column=1, columnspan=3, sticky="w")
 
+    
+    def update_aggressiveness(self,val):
+            val = float(val)
+            self.mult.set(val)
+            self.pid_params={
+                "Kp": self.pid_params_import["Kp"]*self.kp_mult*val,
+                "Ti": self.pid_params_import["Ti"]*self.ki_mult*val,
+                "Td": self.pid_params_import["Td"]*self.kd_mult*val
+            }
+            self.update_pid_label()
+            self.aggressiveness_label.config(text=f"Aggressiveness: {val:.2f}x")
+            
     def log_message(self, message):
         self.log_box.config(state="normal")
         self.log_box.insert("end", message + "\n")
@@ -374,50 +397,115 @@ class FitnessApp:
 
 
     def save_config(self):
+        username = self.user_entry.get().strip().lower()
+        if not username:
+            print("No username set. Cannot save config.")
+            return
+
+        config_path = os.path.join(CONFIG_DIR, f"{username}.json")
+        
         try:
             config = {
                 "ftp": self.ftp,
                 "target_hr": self.target_hr,
                 "power_trainer": self.connected_power_trainer_name.get() if self.connected_power_trainer_name else "",
+                "power_trainer_address": self.connected_power_trainer_address.get() if hasattr(self, "connected_power_trainer_address") else "",
                 "hr_monitor": self.connected_hr_monitor_name.get() if self.connected_hr_monitor_name else "",
+                "hr_monitor_address": self.connected_hr_monitor_address.get() if hasattr(self, "connected_hr_monitor_address") else "",
                 "pid_params": self.pid_params_import,
-                "aggressiveness":self.mult.get()
+                "aggressiveness": self.mult.get()
             }
 
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(config, f, indent=4)  # Pretty-print for readability
+            os.makedirs(CONFIG_DIR, exist_ok=True)  # Ensure directory exists
 
-            print(f"Configuration saved to {CONFIG_FILE}")
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=4)
+
+            # Also update last user
+            with open(LAST_USER_FILE, "w") as f:
+                json.dump({"last_user": username}, f)
+
+            print(f"Configuration saved for user '{username}' to {config_path}")
         except Exception as e:
             print(f"Failed to save config: {e}")
 
-        
-    def load_config(self):
-        if not os.path.exists(CONFIG_FILE):
-            self.pid_params_import={
-                "Kp": -1,
-                "Ti": -1,
-                "Td": -1
-            }
-            return
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                config = json.load(f)
 
-            # Restore values with defaults
-            self.ftp = config.get("ftp", self.ftp)
-            self.target_hr = config.get("target_hr", self.target_hr)
-            self.pid_params_import = config.get("pid_params", {
-                "Kp": -1,
-                "Ti": -1,
-                "Td": -1
-            })
+    def load_last_user(self):
+        try:
+            # Ensure the directory exists
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+
+            # Create file with default if it doesn't exist
+            if not os.path.exists(LAST_USER_FILE):
+                with open(LAST_USER_FILE, "w") as f:
+                    json.dump({"last_user": "default"}, f)
+                    self.user_entry.setvar(value="default")
+                    self.save_last_user("default")
+                    
+
+            # Read file
+            with open(LAST_USER_FILE, "r") as f:
+                data = json.load(f)
+
+            username = data.get("last_user", "")
             
-            mult=config.get("aggressiveness",1.0)
-            self.mult = tk.DoubleVar(value=mult)
-            print(f"Loaded config: FTP={self.ftp}, Target HR={self.target_hr}, PID={self.pid_params}")
+            self.user_entry.delete(0, tk.END)
+            self.user_entry.insert(0, username)
+            self.load_user_config()  # Load based on inserted user
         except Exception as e:
-            print(f"Failed to load config: {e}")
+            print(f"Could not load last user: {e}")
+
+    def save_last_user(self, username):
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            with open(LAST_USER_FILE, "w") as f:
+                json.dump({"last_user": username}, f)
+        except Exception as e:
+            print(f"Could not save last user: {e}")
+
+
+    def load_user_config(self):
+        username = self.user_entry.get().strip().lower()
+        if not username:
+            print("No username entered.")
+            return
+
+        config_path = os.path.join(CONFIG_DIR, f"{username}.json")
+
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+            print(f"Loaded config for user '{username}'")
+
+        else:
+            print(f"No config for '{username}', creating new one with defaults.")
+            config = {
+                "ftp": 200,
+                "target_hr": 140,
+                "pid_params": {"Kp": -1, "Ti": -1, "Td": -1},
+                "aggressiveness": 1.0
+            }
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            with open(config_path, "w") as f:
+                json.dump(config, f, indent=4)
+
+        self.ftp = config.get("ftp", 200)
+        self.target_hr = config.get("target_hr", 140)
+        self.pid_params_import = config.get("pid_params", {"Kp": -1, "Ti": -1, "Td": -1})
+        self.mult.set(config.get("aggressiveness", 1.0))
+
+        self.ftp_label.config(text=f"{self.ftp} W")
+        self.hr_label.config(text=f"{self.target_hr} bpm")
+        self.connected_power_trainer_address=config.get("power_trainer_address","")
+        self.connected_hr_monitor_address=config.get("hr_monitor_address","")
+        self.update_aggressiveness(self.mult.get())
+        
+        self.update_pid_label()
+
+        # Save last user
+        with open(LAST_USER_FILE, "w") as f:
+            json.dump({"last_user": username}, f)
+
 
             
     def on_closing(self):
