@@ -4,6 +4,7 @@ import struct
 import json
 import CHR
 from datetime import datetime
+from pathlib import Path
 
 class TestSequence:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
@@ -108,11 +109,14 @@ class TestSequence:
             "samples": self.samples
         }
         data=CHR.fit_pt2_from_samples(result,True)
-        pid_params_0 = data["pid_chr_0_percent"]
+        pid_params_0 = data["pid_chr_0"]
 
 
         try:
-            with open(self.outfile, "a") as f:
+            # Ensure the output folder exists
+            Path(self.outfile).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(self.outfile, "w") as f:
                 f.write(json.dumps(result) + "\n")
         except Exception as e:
             print("Failed to save:", e)

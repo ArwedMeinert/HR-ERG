@@ -71,6 +71,11 @@ class FitnessApp:
         self.connected_power_trainer_name = tk.StringVar(value="Not connected")
         self.connected_hr_monitor_name = tk.StringVar(value="Not connected")
 
+        self.kp_mult = 50#35
+        self.ki_mult = 10#10
+        self.kd_mult = 5#1
+        
+        
         self._clients = []
         # arrange to clean up on close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -80,10 +85,16 @@ class FitnessApp:
         self.training_active = False  # Add this in __init__
 
         self.load_config()
-        self.pid_available=not(self.pid_params.get("Kp", -1) < 0 or self.pid_params.get("Ti", -1) < 0 or self.pid_params.get("Td", -1) < 0)
+        self.pid_available=not(self.pid_params_import.get("Kp", -1) < 0 or self.pid_params_import.get("Ti", -1) < 0 or self.pid_params_import.get("Td", -1) < 0)
         self.hr_connected=False
         self.power_connected=False
         self.build_gui()
+        mult_val = self.mult.get()
+        self.pid_params={
+                "Kp": self.pid_params_import["Kp"]*self.kp_mult*mult_val,
+                "Ti": self.pid_params_import["Ti"]*self.ki_mult*mult_val,
+                "Td": self.pid_params_import["Td"]*self.kd_mult*mult_val
+            }
         self.update_pid_label()
         #self.update_sequence_button_color()
         
@@ -154,7 +165,33 @@ class FitnessApp:
         self.start_training_button.config(bg=self.COLOR_DISABLED)
         self.start_training_button.grid(row=6, column=0, columnspan=2, pady=5, sticky="e")
 
+        # PID Aggressiveness Slider (row 6, column 2)
+        
 
+        def update_aggressiveness(val):
+            val = float(val)
+            self.mult.set(val)
+            self.pid_params={
+                "Kp": self.pid_params_import["Kp"]*self.kp_mult*val,
+                "Ti": self.pid_params_import["Ti"]*self.ki_mult*val,
+                "Td": self.pid_params_import["Td"]*self.kd_mult*val
+            }
+            self.update_pid_label()
+            self.aggressiveness_label.config(text=f"Aggressiveness: {val:.2f}x")
+
+        self.aggressiveness_slider = ttk.Scale(
+            self.root,
+            from_=0.1,
+            to=3.0,
+            orient="vertical",
+            variable=self.mult,
+            command=update_aggressiveness
+        )
+        self.aggressiveness_slider.grid(row=7, column=2, rowspan=5, sticky="ns", padx=(20, 0), pady=(0, 10))
+
+        self.aggressiveness_label = tk.Label(self.root, text="Aggressiveness: 1.00x")
+        self.aggressiveness_label.grid(row=6, column=2, padx=(20, 0), sticky="s")
+        update_aggressiveness(self.mult.get())
 
         # Stats display (including cadence)
         stats = [
@@ -325,7 +362,7 @@ class FitnessApp:
             log=self.log_message
         )
 
-        _,self.pid_params=run_async_task(seq.run())
+        _,self.pid_params_import=run_async_task(seq.run())
         self.update_pid_label()
         self.pid_available=True
         self.start_sequence_button.config(bg=self.COLOR_DISABLED)
@@ -343,7 +380,8 @@ class FitnessApp:
                 "target_hr": self.target_hr,
                 "power_trainer": self.connected_power_trainer_name.get() if self.connected_power_trainer_name else "",
                 "hr_monitor": self.connected_hr_monitor_name.get() if self.connected_hr_monitor_name else "",
-                "pid_params": self.pid_params
+                "pid_params": self.pid_params_import,
+                "aggressiveness":self.mult.get()
             }
 
             with open(CONFIG_FILE, 'w') as f:
@@ -356,7 +394,7 @@ class FitnessApp:
         
     def load_config(self):
         if not os.path.exists(CONFIG_FILE):
-            self.pid_params={
+            self.pid_params_import={
                 "Kp": -1,
                 "Ti": -1,
                 "Td": -1
@@ -369,11 +407,14 @@ class FitnessApp:
             # Restore values with defaults
             self.ftp = config.get("ftp", self.ftp)
             self.target_hr = config.get("target_hr", self.target_hr)
-            self.pid_params = config.get("pid_params", {
+            self.pid_params_import = config.get("pid_params", {
                 "Kp": -1,
                 "Ti": -1,
                 "Td": -1
             })
+            
+            mult=config.get("aggressiveness",1.0)
+            self.mult = tk.DoubleVar(value=mult)
             print(f"Loaded config: FTP={self.ftp}, Target HR={self.target_hr}, PID={self.pid_params}")
         except Exception as e:
             print(f"Failed to load config: {e}")

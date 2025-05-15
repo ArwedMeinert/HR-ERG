@@ -4,6 +4,7 @@ import json
 from simple_pid import PID
 import Plotter
 from datetime import datetime
+from pathlib import Path
 
 class Workout:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
@@ -26,9 +27,9 @@ class Workout:
         self.log = log or (lambda msg: None)
         self.get_target_hr=get_target_hr
         self.get_run=get_run
-        kp_mult = 45#35
-        ki_mult = 5#10
-        kd_mult = 2#1
+        kp_mult = 50#35
+        ki_mult = 10#10
+        kd_mult = 5#1
         self.kp=PID_params['Kp']*kp_mult
         self.Ki=self.kp/PID_params['Ti']*ki_mult
         self.Kd=self.kp*PID_params['Td']*kd_mult
@@ -106,8 +107,8 @@ class Workout:
                 erg_enabled = True
                 # maybe re‐arm to previous target power on next cycle
                 self.log("Cadence recovered. ERG re‐enabled.")
-            elif erg_enabled:
-                await self.set_power(power)
+            else:
+                await self.set_power(int(power))
                 self.log(f"Setting power to {power:.0f}W")
 
             self.log_sample()
@@ -123,11 +124,17 @@ class Workout:
         }
         Plotter.plot_power_and_hr(result)
 
+        
+        
         try:
+            # Ensure the output folder exists
+            Path(self.outfile).parent.mkdir(parents=True, exist_ok=True)
+            
             with open(self.outfile, "w") as f:
                 f.write(json.dumps(result) + "\n")
         except Exception as e:
             print("Failed to save:", e)
+            
 
     
     async def enable_erg_control(self):
