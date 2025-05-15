@@ -26,9 +26,12 @@ class Workout:
         self.log = log or (lambda msg: None)
         self.get_target_hr=get_target_hr
         self.get_run=get_run
-        self.kp=PID_params['Kp']*35
-        self.Ki=self.kp/PID_params['Ti']*10
-        self.Kd=self.kp*PID_params['Td']
+        kp_mult = 45#35
+        ki_mult = 5#10
+        kd_mult = 2#1
+        self.kp=PID_params['Kp']*kp_mult
+        self.Ki=self.kp/PID_params['Ti']*ki_mult
+        self.Kd=self.kp*PID_params['Td']*kd_mult
         self.pid = PID(self.kp, self.Ki, self.Kd, setpoint=self.get_target_hr())
         print(f"Kp: {self.pid.Kp:.4f}, Ki: {self.pid.Ki:.4f}, Kd: {self.pid.Kd:.4f}")
         self.pid.output_limits = (0.3*self.ftp, 1.3*self.ftp)

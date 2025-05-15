@@ -47,6 +47,11 @@ CONFIG_FILE = 'config.json'
 
 class FitnessApp:
     def __init__(self, root):
+        self.COLOR_ACTION="firebrick1"
+        self.COLOR_DISABLED = "lightgrey"
+        self.COLOR_START="SteelBlue1"
+        self.COLOR_OK="lawn green"
+
         self.root = root
         self.root.title("Fitness Control Panel")
 
@@ -75,41 +80,63 @@ class FitnessApp:
         self.training_active = False  # Add this in __init__
 
         self.load_config()
+        self.pid_available=not(self.pid_params.get("Kp", -1) < 0 or self.pid_params.get("Ti", -1) < 0 or self.pid_params.get("Td", -1) < 0)
+        self.hr_connected=False
+        self.power_connected=False
         self.build_gui()
         self.update_pid_label()
-        self.update_sequence_button_color()
+        #self.update_sequence_button_color()
         
     def build_gui(self):
         # Power Trainer row
         tk.Label(self.root, text="Power Trainer:").grid(row=0, column=0, sticky="e")
-        self.power_button=tk.Button(self.root,text="Search",command=self.run_script_1,bg="red")
+        self.power_button=tk.Button(self.root,text="Search",command=self.run_script_1,bg=self.COLOR_ACTION)
         self.power_button.grid(row=0, column=1)
         tk.Label(self.root, textvariable=self.connected_power_trainer_name).grid(row=0, column=2, sticky="w")
 
         # HR Monitor row
         tk.Label(self.root, text="HR Monitor:").grid(row=1, column=0, sticky="e")
-        self.hr_button=tk.Button(self.root,text="Search",command=self.run_script_2,bg="red")
+        self.hr_button=tk.Button(self.root,text="Search",command=self.run_script_2,bg=self.COLOR_ACTION)
         self.hr_button.grid(row=1, column=1)
         tk.Label(self.root, textvariable=self.connected_hr_monitor_name).grid(row=1, column=2, sticky="w")
 
         # Start Sequence
         self.start_sequence_button=tk.Button(self.root,text="Start Sequence",command=self.start_sequence,width=20)
+        self.start_sequence_button.config(bg=self.COLOR_DISABLED)
         self.start_sequence_button.grid(row=2, column=0, columnspan=2, pady=10)
 
         # FTP Setting
         tk.Label(self.root, text="FTP:").grid(row=3, column=0, sticky="e")
         self.ftp_label = tk.Label(self.root, text=f"{self.ftp} W")
         self.ftp_label.grid(row=3, column=1)
-        tk.Button(self.root, text="-", command=self.decrease_ftp, width=3).grid(row=3, column=2)
-        tk.Button(self.root, text="+", command=self.increase_ftp, width=3).grid(row=3, column=3)
+        self.ftp_min_button = tk.Button(self.root, text="-", command=self.decrease_ftp, width=3)
+        self.ftp_min_button.grid(row=3, column=2)
 
+        self.ftp_max_button = tk.Button(self.root, text="+", command=self.increase_ftp, width=3)
+        self.ftp_max_button.grid(row=3, column=3)
+            
         # Target HR Setting
         tk.Label(self.root, text="Target HR:").grid(row=4, column=0, sticky="e")
         self.hr_label = tk.Label(self.root, text=f"{self.target_hr} bpm")
         self.hr_label.grid(row=4, column=1)
-        tk.Button(self.root, text="-", command=self.decrease_hr, width=3).grid(row=4, column=2)
-        tk.Button(self.root, text="+", command=self.increase_hr, width=3).grid(row=4, column=3)
+        self.hr_min_button = tk.Button(self.root, text="-", command=self.decrease_hr, width=3, bg=self.COLOR_START)
+        self.hr_min_button.grid(row=4, column=2)
 
+        self.hr_max_button = tk.Button(self.root, text="+", command=self.increase_hr, width=3, bg=self.COLOR_START)
+        self.hr_max_button.grid(row=4, column=3)
+
+        if not self.pid_available:
+            self.ftp_min_button.config(bg=self.COLOR_START)
+            self.ftp_max_button.config(bg=self.COLOR_START)
+            self.hr_min_button.config(bg=self.COLOR_DISABLED)
+            self.hr_max_button.config(bg=self.COLOR_DISABLED)
+        else:
+            self.ftp_min_button.config(bg=self.COLOR_DISABLED)
+            self.ftp_max_button.config(bg=self.COLOR_DISABLED)
+            self.hr_min_button.config(bg=self.COLOR_START)
+            self.hr_max_button.config(bg=self.COLOR_START)
+            
+            
         # PID Display (row 5 before stats start at 6)
         self.pid_label = tk.Label(self.root, text="PID: Kp=-, Ti=-, Td=-", font=("Arial", 10))
         self.pid_label.grid(row=5, column=2, columnspan=4, sticky="w", padx=10)
@@ -124,6 +151,7 @@ class FitnessApp:
             self.root, text="Start Training", bg="lightgreen", width=20,
             command=self.toggle_training
         )
+        self.start_training_button.config(bg=self.COLOR_DISABLED)
         self.start_training_button.grid(row=6, column=0, columnspan=2, pady=5, sticky="e")
 
 
@@ -165,15 +193,15 @@ class FitnessApp:
             self.log_message("Please connect a Heart Rate Monitor before starting the workout!")
             return
         p = self.pid_params
-        no_pid = p.get("Kp", -1) < 0 or p.get("Ti", -1) < 0 or p.get("Td", -1) < 0
-        if no_pid:
+        
+        if not self.pid_available:
             print("No PID values saved")
             self.log_message("No PID Values Saved. Please run the Test Sequence first")
             return
         self.training_active = not self.training_active
         if self.training_active:
             
-            self.start_training_button.config(text="Training Running", bg="red")
+            self.start_training_button.config(text="Training Running", bg=self.COLOR_ACTION)
             self.log_message("Training started")
             print(f"Kp: {self.pid_params['Kp']}, Ki: {self.pid_params['Ti']}, Kd: {self.pid_params['Td']}")
 
@@ -220,15 +248,16 @@ class FitnessApp:
 
 
         else:
-            self.start_training_button.config(text="Start Training", bg="lightgreen")
+            self.start_training_button.config(text="Start Training", bg=self.COLOR_START)
             self.log_message("Training stopped")
 
     def update_sequence_button_color(self):
         # if we never loaded a valid PID (e.g. defaults are <0) → green
         p = self.pid_params
         no_pid = p.get("Kp", -1) < 0 or p.get("Ti", -1) < 0 or p.get("Td", -1) < 0
-        color = "lightgreen" if no_pid else "SystemButtonFace"
+        color = self.COLOR_START if no_pid else self.COLOR_DISABLED
         self.start_sequence_button.config(bg=color)
+        self.start_training_button.config(bg=self.COLOR_DISABLED)
 
 
     # FTP controls
@@ -298,6 +327,13 @@ class FitnessApp:
 
         _,self.pid_params=run_async_task(seq.run())
         self.update_pid_label()
+        self.pid_available=True
+        self.start_sequence_button.config(bg=self.COLOR_DISABLED)
+        self.start_training_button.config(bg=self.COLOR_ACTION)
+        self.ftp_min_button.config(bg=self.COLOR_DISABLED)
+        self.ftp_max_button.config(bg=self.COLOR_DISABLED)
+        self.hr_min_button.config(bg=self.COLOR_ACTION)
+        self.hr_max_button.config(bg=self.COLOR_ACTION)
 
 
     def save_config(self):
@@ -320,6 +356,11 @@ class FitnessApp:
         
     def load_config(self):
         if not os.path.exists(CONFIG_FILE):
+            self.pid_params={
+                "Kp": -1,
+                "Ti": -1,
+                "Td": -1
+            }
             return
         try:
             with open(CONFIG_FILE, 'r') as f:
@@ -367,6 +408,8 @@ class FitnessApp:
                 lambda d: self.connect_to_device(d, self.on_power_trainer_connected),
                 title="Select Power Trainer"
             ))
+        self.log_message("Searching for Power Trainers")
+        self.power_button.config(bg=self.COLOR_DISABLED)
         run_async_task(task())
 
 
@@ -383,6 +426,8 @@ class FitnessApp:
                 lambda device: self.connect_to_device(device, self.on_hr_monitor_connected),
                 title="Select Heart Rate Monitor"
             ))
+        self.log_message("Searching for HR Monitors")
+        self.hr_button.config(bg=self.COLOR_DISABLED)
         run_async_task(task())
 
     def connect_to_device(self, device, callback):
@@ -401,11 +446,21 @@ class FitnessApp:
         # ensure you have a StringVar for cadence
         #self.current_cadence = tk.StringVar(value="0 RPM")
         # subscribe
+        name = await client.read_gatt_char("00002a00-0000-1000-8000-00805f9b34fb")
+        decoded = name.decode(errors="ignore")
+        self.root.after(0, lambda: self.connected_power_trainer_name.set(decoded))
         await client.start_notify(
             self.btle.CYCLING_POWER_MEASUREMENT_UUID,
             self.power_handler
         )
-        self.root.after(0, lambda: self.power_button.config(bg="lightgreen"))
+        self.root.after(0, lambda: self.power_button.config(bg=self.COLOR_OK))
+        self.power_connected=True
+        if self.pid_available and self.hr_connected and self.power_connected:
+            self.start_training_button.config(bg=self.COLOR_START)
+            self.log_message("You can start the training")
+        elif self.hr_connected and self.power_connected and not self.pid_available:
+            self.start_sequence_button(bg=self.COLOR_START)
+            self.log_message("Please run the test sequence first!")
 
     
     def power_handler(self, sender, data: bytearray):
@@ -471,8 +526,14 @@ class FitnessApp:
             self.root.after(0, lambda: self.current_hr.set(f"{hr} bpm"))
         await client.start_notify(self.btle.HEART_RATE_UUID, hr_handler)
         self.hr_client = client
-        self.root.after(0, lambda: self.hr_button.config(bg="lightgreen"))
-
+        self.root.after(0, lambda: self.hr_button.config(bg=self.COLOR_OK))
+        self.hr_connected=True
+        if self.pid_available and self.hr_connected and self.power_connected:
+            self.start_training_button.config(bg=self.COLOR_START)
+            self.log_message("You can start the training")
+        elif self.hr_connected and self.power_connected and not self.pid_available:
+            self.start_sequence_button.config(bg=self.COLOR_START)
+            self.log_message("Please run the test sequence first!")
 
 
 
