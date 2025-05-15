@@ -77,20 +77,24 @@ class FitnessApp:
         self.load_config()
         self.build_gui()
         self.update_pid_label()
+        self.update_sequence_button_color()
         
     def build_gui(self):
         # Power Trainer row
         tk.Label(self.root, text="Power Trainer:").grid(row=0, column=0, sticky="e")
-        tk.Button(self.root, text="Go", command=self.run_script_1).grid(row=0, column=1)
+        self.power_button=tk.Button(self.root,text="Search",command=self.run_script_1,bg="red")
+        self.power_button.grid(row=0, column=1)
         tk.Label(self.root, textvariable=self.connected_power_trainer_name).grid(row=0, column=2, sticky="w")
 
         # HR Monitor row
         tk.Label(self.root, text="HR Monitor:").grid(row=1, column=0, sticky="e")
-        tk.Button(self.root, text="Go", command=self.run_script_2).grid(row=1, column=1)
+        self.hr_button=tk.Button(self.root,text="Search",command=self.run_script_2,bg="red")
+        self.hr_button.grid(row=1, column=1)
         tk.Label(self.root, textvariable=self.connected_hr_monitor_name).grid(row=1, column=2, sticky="w")
 
         # Start Sequence
-        tk.Button(self.root, text="Start Sequence", command=self.start_sequence, width=20).grid(row=2, column=0, columnspan=2, pady=10)
+        self.start_sequence_button=tk.Button(self.root,text="Start Sequence",command=self.start_sequence,width=20)
+        self.start_sequence_button.grid(row=2, column=0, columnspan=2, pady=10)
 
         # FTP Setting
         tk.Label(self.root, text="FTP:").grid(row=3, column=0, sticky="e")
@@ -152,6 +156,20 @@ class FitnessApp:
 
 
     def toggle_training(self):
+        if not hasattr(self, "power_client"):
+            print("Trainer not connected")
+            self.log_message("Please connect a power trainer before Starting the workout!")
+            return
+        if not hasattr(self, "hr_client"):
+            print("HR not connected")
+            self.log_message("Please connect a Heart Rate Monitor before starting the workout!")
+            return
+        p = self.pid_params
+        no_pid = p.get("Kp", -1) < 0 or p.get("Ti", -1) < 0 or p.get("Td", -1) < 0
+        if no_pid:
+            print("No PID values saved")
+            self.log_message("No PID Values Saved. Please run the Test Sequence first")
+            return
         self.training_active = not self.training_active
         if self.training_active:
             
@@ -205,7 +223,12 @@ class FitnessApp:
             self.start_training_button.config(text="Start Training", bg="lightgreen")
             self.log_message("Training stopped")
 
-
+    def update_sequence_button_color(self):
+        # if we never loaded a valid PID (e.g. defaults are <0) → green
+        p = self.pid_params
+        no_pid = p.get("Kp", -1) < 0 or p.get("Ti", -1) < 0 or p.get("Td", -1) < 0
+        color = "lightgreen" if no_pid else "SystemButtonFace"
+        self.start_sequence_button.config(bg=color)
 
 
     # FTP controls
@@ -233,6 +256,11 @@ class FitnessApp:
     def start_sequence(self):
         if not hasattr(self, "power_client"):
             print("Trainer not connected")
+            self.log_message("Please connect a power trainer before running the test!")
+            return
+        if not hasattr(self, "hr_client"):
+            print("HR not connected")
+            self.log_message("Please connect a Heart Rate Monitor before running the test!")
             return
 
         # extract current values safely
@@ -377,6 +405,7 @@ class FitnessApp:
             self.btle.CYCLING_POWER_MEASUREMENT_UUID,
             self.power_handler
         )
+        self.root.after(0, lambda: self.power_button.config(bg="lightgreen"))
 
     
     def power_handler(self, sender, data: bytearray):
@@ -441,6 +470,8 @@ class FitnessApp:
             hr = parse_heart_rate(data)
             self.root.after(0, lambda: self.current_hr.set(f"{hr} bpm"))
         await client.start_notify(self.btle.HEART_RATE_UUID, hr_handler)
+        self.hr_client = client
+        self.root.after(0, lambda: self.hr_button.config(bg="lightgreen"))
 
 
 

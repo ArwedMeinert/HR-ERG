@@ -3,12 +3,12 @@ import time
 import json
 from simple_pid import PID
 import Plotter
-import datetime
+from datetime import datetime
 
 class Workout:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
                  set_power, ftp:int,PID_params,get_target_hr,get_run,set_elapsed, set_avg_power,
-                 output_file:str=f"Workouts/test_results{datetime.now().strftime("%Y-%m-%d")}.json",log=None,max_step=10):
+                 output_file:str=f"Workouts/test_results{datetime.now().strftime('%Y-%m-%d')}.json",log=None,max_step=10):
         self.client = power_client
         self.get_current_hr = get_current_hr
         self.get_current_power = get_current_power
@@ -58,6 +58,7 @@ class Workout:
 
     async def run(self):
         print("Entered run")
+        erg_enabled=True
         self.samples = []
         avg=0
         self._start_time = time.time()
@@ -93,8 +94,18 @@ class Workout:
             #    power=pw+self.max_step
             
                 
-            self.log(f"Setting power to {power:.0f} W")
-            await self.set_power(int(power))
+            cadence=self.get_current_cadence()
+            if cadence < 60 and erg_enabled:
+                erg_enabled = False
+                await self.set_power(0)
+                self.log("Cadence too low. ERG disabled.")
+            elif cadence >= 60 and not erg_enabled:
+                erg_enabled = True
+                # maybe re‐arm to previous target power on next cycle
+                self.log("Cadence recovered. ERG re‐enabled.")
+            elif erg_enabled:
+                await self.set_power(power)
+                self.log(f"Setting power to {power:.0f}W")
 
             self.log_sample()
             await asyncio.sleep(1)

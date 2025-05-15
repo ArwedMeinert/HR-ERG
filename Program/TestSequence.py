@@ -3,13 +3,13 @@ import time
 import struct
 import json
 import CHR
-import datetime
+from datetime import datetime
 
 class TestSequence:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
                  set_power, ftp:int, zone2_pct:float=0.6,
                  hr_tolerance:int=2, stabilize_secs:int=20,
-                 output_file:str=f"TestSequence/test_results{datetime.now().strftime("%Y-%m-%d")}.json",log=None):
+                 output_file:str=f"TestSequence/test_results{datetime.now().strftime('%Y-%m-%d')}.json",log=None):
         self.client = power_client
         self.get_current_hr = get_current_hr
         self.get_current_power = get_current_power
