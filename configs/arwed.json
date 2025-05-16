@@ -3,12 +3,12 @@
     "target_hr": 135,
     "power_trainer": "Zwift Hub",
     "power_trainer_address": "EA:4F:F7:E9:1A:6B",
-    "hr_monitor": "fenix 7X",
+    "hr_monitor": "Not connected",
     "hr_monitor_address": "E0:48:24:13:6E:92",
     "pid_params": {
         "Kp": 5.827274191298451,
         "Ti": 25.607520470339114,
         "Td": 4.999726562165643
     },
-    "aggressiveness": 1.0
+    "aggressiveness": 0.9430232558139535
 }

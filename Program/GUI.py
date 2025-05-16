@@ -196,8 +196,8 @@ class FitnessApp:
 
         self.aggressiveness_slider = ttk.Scale(
             self.root,
-            from_=0.1,
-            to=3.0,
+            from_=0.5,
+            to=2,
             orient="vertical",
             variable=self.mult,
             command=self.update_aggressiveness
@@ -247,16 +247,14 @@ class FitnessApp:
 
 
     def toggle_training(self):
-        if not hasattr(self, "power_client"):
+        if not self.power_connected:
             print("Trainer not connected")
             self.log_message("Please connect a power trainer before Starting the workout!")
             return
-        if not hasattr(self, "hr_client"):
+        if not self.hr_connected:
             print("HR not connected")
             self.log_message("Please connect a Heart Rate Monitor before starting the workout!")
             return
-        p = self.pid_params
-        
         if not self.pid_available:
             print("No PID values saved")
             self.log_message("No PID Values Saved. Please run the Test Sequence first")
@@ -336,7 +334,7 @@ class FitnessApp:
 
     def update_pid_label(self):
         p = self.pid_params
-        self.pid_label.config(text=f"PID: Kp={p['Kp']:.4f}, Ti={p['Ti']:.1f}, Td={p['Td']:.1f}")
+        self.pid_label.config(text=f"PID: Kp={p['Kp']:.4f}, Ki={p['Ti']/p['Kp']:.1f}, Kd={p['Kp']*p['Td']:.1f}")
     
     # HR target controls
     def increase_hr(self):
@@ -348,13 +346,13 @@ class FitnessApp:
         self.hr_label.config(text=f"{self.target_hr} bpm")
 
     def start_sequence(self):
-        if not hasattr(self, "power_client"):
+        if not self.power_connected:
             print("Trainer not connected")
-            self.log_message("Please connect a power trainer before running the test!")
+            self.log_message("Please connect a power trainer before Starting the test!")
             return
-        if not hasattr(self, "hr_client"):
+        if not self.hr_connected:
             print("HR not connected")
-            self.log_message("Please connect a Heart Rate Monitor before running the test!")
+            self.log_message("Please connect a Heart Rate Monitor before starting the test!")
             return
 
         # extract current values safely
@@ -583,6 +581,13 @@ class FitnessApp:
                 self.power_button.config(bg=self.COLOR_ACTION)
             else:
                 await self.on_power_trainer_connected(client)
+                self.power_connected=True
+                if self.pid_available and self.hr_connected and self.power_connected:
+                    self.start_training_button.config(bg=self.COLOR_START)
+                    self.log_message("You can start the training")
+                elif self.hr_connected and self.power_connected and not self.pid_available:
+                    self.start_sequence_button(bg=self.COLOR_START)
+                    self.log_message("Please run the test sequence first!")
 
         run_async_task(cb())
 
@@ -595,6 +600,13 @@ class FitnessApp:
                 self.hr_button.config(bg=self.COLOR_ACTION)
             else:
                 await self.on_hr_monitor_connected(client)
+                self.hr_connected=True
+                if self.pid_available and self.hr_connected and self.power_connected:
+                    self.start_training_button.config(bg=self.COLOR_START)
+                    self.log_message("You can start the training")
+                elif self.hr_connected and self.power_connected and not self.pid_available:
+                    self.start_sequence_button(bg=self.COLOR_START)
+                    self.log_message("Please run the test sequence first!")
 
         run_async_task(cb())
 
