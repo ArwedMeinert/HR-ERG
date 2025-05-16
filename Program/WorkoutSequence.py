@@ -8,12 +8,13 @@ from pathlib import Path
 
 class Workout:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
-                 set_power, ftp:int,PID_params,get_target_hr,get_run,set_elapsed, set_avg_power,
+                 set_power, ftp:int,PID_params,get_target_hr,get_run,set_elapsed, set_avg_power,get_pid_params=None,
                  output_file:str=f"Workouts/test_results{datetime.now().strftime('%Y-%m-%d')}.json",log=None,max_step=10):
         self.client = power_client
         self.get_current_hr = get_current_hr
         self.get_current_power = get_current_power
         self.get_current_cadence = get_current_cadence
+        self.get_pid_params=get_pid_params
         self.set_power = set_power
         self.ftp = ftp
         self.max_step=max_step
@@ -27,13 +28,17 @@ class Workout:
         self.log = log or (lambda msg: None)
         self.get_target_hr=get_target_hr
         self.get_run=get_run
-        kp_mult = 50#35
-        ki_mult = 10#10
-        kd_mult = 5#1
-        self.kp=PID_params['Kp']*kp_mult
-        self.Ki=self.kp/PID_params['Ti']*ki_mult
-        self.Kd=self.kp*PID_params['Td']*kd_mult
+
+        if get_pid_params is not None:
+            kp, Ti, Td = get_pid_params()
+        else:
+            kp, Ti, Td = PID_params['Kp'], PID_params['Ti'], PID_params['Td']
+
+        self.kp = kp
+        self.Ki = kp / Ti
+        self.Kd = kp * Td
         self.pid = PID(self.kp, self.Ki, self.Kd, setpoint=self.get_target_hr())
+
         print(f"Kp: {self.pid.Kp:.4f}, Ki: {self.pid.Ki:.4f}, Kd: {self.pid.Kd:.4f}")
         self.pid.output_limits = (0.3*self.ftp, 1.3*self.ftp)
 
@@ -78,6 +83,12 @@ class Workout:
         
         while self.get_run():
             # compute elapsed
+            if self.get_pid_params is not None:
+                [kp,Ti,Td]=self.get_pid_params()
+                self.kp=kp
+                self.Ki=self.kp/Ti
+                self.Kd=self.kp*Td
+                self.pid.tunings=(self.kp,self.Ki,self.Kd)
             elapsed = time.time() - self._start_time
             self.set_elapsed(elapsed)
             target_hr=self.get_target_hr()

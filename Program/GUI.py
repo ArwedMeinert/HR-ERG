@@ -52,6 +52,7 @@ class FitnessApp:
         self.COLOR_DISABLED = "lightgrey"
         self.COLOR_START="SteelBlue1"
         self.COLOR_OK="lawn green"
+        self.COLOR_IN_PROCESS="yellow2"
 
         
         self.root = root
@@ -272,6 +273,7 @@ class FitnessApp:
                 return
 
             # helper getters
+            get_pid= lambda: [self.pid_params["Kp"],self.pid_params["Ti"],self.pid_params["Td"]]
             get_hr = lambda: int(self.current_hr.get().split()[0] or 0)
             get_pow = lambda: int(self.current_power.get().split()[0] or 0)
             get_cad = lambda: int(self.current_cadence.get().split()[0] or 0)
@@ -293,6 +295,7 @@ class FitnessApp:
                 get_current_power=get_pow,
                 get_current_cadence=get_cad,
                 set_power=self.set_erg_power,
+                get_pid_params=get_pid,
                 ftp=self.ftp,
                 PID_params=self.pid_params,
                 get_target_hr=get_target_hr,
@@ -385,15 +388,31 @@ class FitnessApp:
             log=self.log_message
         )
 
-        _,self.pid_params_import=run_async_task(seq.run())
-        self.update_pid_label()
-        self.pid_available=True
-        self.start_sequence_button.config(bg=self.COLOR_DISABLED)
-        self.start_training_button.config(bg=self.COLOR_ACTION)
-        self.ftp_min_button.config(bg=self.COLOR_DISABLED)
-        self.ftp_max_button.config(bg=self.COLOR_DISABLED)
-        self.hr_min_button.config(bg=self.COLOR_ACTION)
-        self.hr_max_button.config(bg=self.COLOR_ACTION)
+        async def do_sequence_and_update():
+            # Run the test and wait for its results
+            result, pid_params = await seq.run()
+
+            # 1) Store the new PID parameters
+            self.pid_params_import = pid_params
+            
+            # 2) Update the on-screen PID display on the main thread
+            self.root.after(0, self.update_pid_label)
+
+            # 3) Mark PID available & enable buttons
+            self.pid_available = True
+            self.root.after(0, lambda: self.start_sequence_button.config(bg=self.COLOR_DISABLED))
+            self.root.after(0, lambda: self.start_training_button.config(bg=self.COLOR_ACTION))
+            self.root.after(0, lambda:self.ftp_min_button.config(bg=self.COLOR_DISABLED))
+            self.root.after(0, lambda:self.ftp_max_button.config(bg=self.COLOR_DISABLED))
+            self.root.after(0, lambda:self.hr_min_button.config(bg=self.COLOR_ACTION))
+            self.root.after(0, lambda:self.hr_max_button.config(bg=self.COLOR_ACTION))
+
+            # 4) Save them immediately in the user config
+            self.save_config()
+
+        # Schedule that combined task
+        run_async_task(do_sequence_and_update())
+        
 
 
     def save_config(self):
@@ -439,7 +458,8 @@ class FitnessApp:
             if not os.path.exists(LAST_USER_FILE):
                 with open(LAST_USER_FILE, "w") as f:
                     json.dump({"last_user": "default"}, f)
-                    self.user_entry.setvar(value="default")
+                    self.user_entry.delete(0, tk.END)
+                    self.user_entry.insert(0, "default")
                     self.save_last_user("default")
                     
 
@@ -464,12 +484,28 @@ class FitnessApp:
             print(f"Could not save last user: {e}")
 
 
+
+    def disconnect_all(self):
+        async def _dc():
+            for c in self._clients:
+                try: await c.disconnect()
+                except: pass
+        asyncio.run(_dc())
+        self._clients.clear()
+        self.hr_client = None
+        self.power_client = None
+        self.hr_connected = self.power_connected = False
+        # reset buttons…
+        self.power_button.config(bg=self.COLOR_ACTION)
+        self.hr_button   .config(bg=self.COLOR_ACTION)
+
+
     def load_user_config(self):
         username = self.user_entry.get().strip().lower()
         if not username:
             print("No username entered.")
             return
-
+        #self.disconnect_all()
         config_path = os.path.join(CONFIG_DIR, f"{username}.json")
 
         if os.path.exists(config_path):
@@ -507,10 +543,12 @@ class FitnessApp:
 
         if self.connected_power_trainer_address:
             self.log_message(f"Auto-connecting power trainer @ {self.connected_power_trainer_address}…")
+            self.power_button.config(bg=self.COLOR_IN_PROCESS)
             self._auto_connect_power(self.connected_power_trainer_address)
 
         if self.connected_hr_monitor_address:
             self.log_message(f"Auto-connecting HR monitor @ {self.connected_hr_monitor_address}…")
+            self.hr_button.config(bg=self.COLOR_IN_PROCESS)
             self._auto_connect_hr(self.connected_hr_monitor_address)
         
         # Save last user
@@ -519,15 +557,27 @@ class FitnessApp:
 
     def _auto_connect_power(self, address):
         """Try to connect to a power trainer at `address`."""
-        async def cb(client):
-            await self.on_power_trainer_connected(client)
-        run_async_task(self.btle.connect(address, cb))
+        async def cb():
+            client = await self.btle.connect(address)
+            if client is None:
+                self.log_message("Failed to connect to power trainer.")
+                self.power_button.config(bg=self.COLOR_ACTION)
+            else:
+                await self.on_power_trainer_connected(client)
+
+        run_async_task(cb())
 
     def _auto_connect_hr(self, address):
         """Try to connect to an HR monitor at `address`."""
-        async def cb(client):
-            await self.on_hr_monitor_connected(client)
-        run_async_task(self.btle.connect(address, cb))
+        async def cb():
+            client = await self.btle.connect(address)
+            if client is None:
+                self.log_message("Failed to connect to HR monitor.")
+                self.hr_button.config(bg=self.COLOR_ACTION)
+            else:
+                await self.on_hr_monitor_connected(client)
+
+        run_async_task(cb())
 
 
             
@@ -561,7 +611,7 @@ class FitnessApp:
                 title="Select Power Trainer"
             ))
         self.log_message("Searching for Power Trainers")
-        self.power_button.config(bg=self.COLOR_DISABLED)
+        self.power_button.config(bg=self.COLOR_IN_PROCESS)
         run_async_task(task())
 
 
@@ -579,7 +629,7 @@ class FitnessApp:
                 title="Select Heart Rate Monitor"
             ))
         self.log_message("Searching for HR Monitors")
-        self.hr_button.config(bg=self.COLOR_DISABLED)
+        self.hr_button.config(bg=self.COLOR_IN_PROCESS)
         run_async_task(task())
 
     def connect_to_device(self, device, callback):

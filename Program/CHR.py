@@ -94,8 +94,10 @@ def fit_pt2_from_samples(data, plot=True):
 if __name__=="__main__":
     import json
 
-    with open("sequence_results.json") as f:
+    with open("StepResponseTests/sequence_results.json") as f:
         data = json.load(f)
 
     fit_result = fit_pt2_from_samples(data)
-    print(json.dumps(fit_result, indent=2))
+    pid_params_0 = fit_result["pid_chr_0"]
+    print(pid_params_0)
+    #print(json.dumps(fit_result, indent=2))
