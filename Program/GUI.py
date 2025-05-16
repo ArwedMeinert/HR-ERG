@@ -409,9 +409,9 @@ class FitnessApp:
                 "ftp": self.ftp,
                 "target_hr": self.target_hr,
                 "power_trainer": self.connected_power_trainer_name.get() if self.connected_power_trainer_name else "",
-                "power_trainer_address": self.connected_power_trainer_address.get() if hasattr(self, "connected_power_trainer_address") else "",
+                "power_trainer_address": self.connected_power_trainer_address if hasattr(self, "connected_power_trainer_address") else "",
                 "hr_monitor": self.connected_hr_monitor_name.get() if self.connected_hr_monitor_name else "",
-                "hr_monitor_address": self.connected_hr_monitor_address.get() if hasattr(self, "connected_hr_monitor_address") else "",
+                "hr_monitor_address": self.connected_hr_monitor_address if hasattr(self, "connected_hr_monitor_address") else "",
                 "pid_params": self.pid_params_import,
                 "aggressiveness": self.mult.get()
             }
@@ -489,6 +489,8 @@ class FitnessApp:
             with open(config_path, "w") as f:
                 json.dump(config, f, indent=4)
 
+        
+        
         self.ftp = config.get("ftp", 200)
         self.target_hr = config.get("target_hr", 140)
         self.pid_params_import = config.get("pid_params", {"Kp": -1, "Ti": -1, "Td": -1})
@@ -498,13 +500,34 @@ class FitnessApp:
         self.hr_label.config(text=f"{self.target_hr} bpm")
         self.connected_power_trainer_address=config.get("power_trainer_address","")
         self.connected_hr_monitor_address=config.get("hr_monitor_address","")
+        
         self.update_aggressiveness(self.mult.get())
         
         self.update_pid_label()
 
+        if self.connected_power_trainer_address:
+            self.log_message(f"Auto-connecting power trainer @ {self.connected_power_trainer_address}…")
+            self._auto_connect_power(self.connected_power_trainer_address)
+
+        if self.connected_hr_monitor_address:
+            self.log_message(f"Auto-connecting HR monitor @ {self.connected_hr_monitor_address}…")
+            self._auto_connect_hr(self.connected_hr_monitor_address)
+        
         # Save last user
         with open(LAST_USER_FILE, "w") as f:
             json.dump({"last_user": username}, f)
+
+    def _auto_connect_power(self, address):
+        """Try to connect to a power trainer at `address`."""
+        async def cb(client):
+            await self.on_power_trainer_connected(client)
+        run_async_task(self.btle.connect(address, cb))
+
+    def _auto_connect_hr(self, address):
+        """Try to connect to an HR monitor at `address`."""
+        async def cb(client):
+            await self.on_hr_monitor_connected(client)
+        run_async_task(self.btle.connect(address, cb))
 
 
             
@@ -572,6 +595,7 @@ class FitnessApp:
         
     async def on_power_trainer_connected(self, client):
         self.power_client = client
+        self.connected_power_trainer_address = self.power_client.address
         # ensure you have a StringVar for cadence
         #self.current_cadence = tk.StringVar(value="0 RPM")
         # subscribe
@@ -641,6 +665,7 @@ class FitnessApp:
 
     async def on_hr_monitor_connected(self, client):
         print("HR monitor connected.")
+        self.connected_hr_monitor_address = client.address
         # display device name
         try:
             name = await client.read_gatt_char("00002a00-0000-1000-8000-00805f9b34fb")
