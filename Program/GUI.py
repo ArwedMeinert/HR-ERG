@@ -63,6 +63,8 @@ class FitnessApp:
         self.target_hr = 140
         self.power=0
         self.cadence=0.0
+        self.power_client=None
+        self.hr_client=None
         # Live stats variables
         self.elapsed_time = tk.StringVar(value="00:00")
         self.avg_power = tk.StringVar(value="0 W")
@@ -77,9 +79,9 @@ class FitnessApp:
         self.connected_power_trainer_address=""
         self.connected_hr_monitor_address=""
 
-        self.kp_mult = 50#35
-        self.ki_mult = 10#10
-        self.kd_mult = 5#1
+        self.kp_mult = 1#35
+        self.ki_mult = 1#10
+        self.kd_mult = 1#1
         
         
         self._clients = []
@@ -401,14 +403,15 @@ class FitnessApp:
             # 3) Mark PID available & enable buttons
             self.pid_available = True
             self.root.after(0, lambda: self.start_sequence_button.config(bg=self.COLOR_DISABLED))
-            self.root.after(0, lambda: self.start_training_button.config(bg=self.COLOR_ACTION))
+            self.root.after(0, lambda: self.start_training_button.config(bg=self.COLOR_START))
             self.root.after(0, lambda:self.ftp_min_button.config(bg=self.COLOR_DISABLED))
             self.root.after(0, lambda:self.ftp_max_button.config(bg=self.COLOR_DISABLED))
-            self.root.after(0, lambda:self.hr_min_button.config(bg=self.COLOR_ACTION))
-            self.root.after(0, lambda:self.hr_max_button.config(bg=self.COLOR_ACTION))
+            self.root.after(0, lambda:self.hr_min_button.config(bg=self.COLOR_START))
+            self.root.after(0, lambda:self.hr_max_button.config(bg=self.COLOR_START))
 
             # 4) Save them immediately in the user config
             self.save_config()
+            self.update_pid_label()
 
         # Schedule that combined task
         run_async_task(do_sequence_and_update())
@@ -537,16 +540,32 @@ class FitnessApp:
         self.connected_power_trainer_address=config.get("power_trainer_address","")
         self.connected_hr_monitor_address=config.get("hr_monitor_address","")
         
+        self.pid_available = not any(
+            self.pid_params_import[k] < 0
+            for k in ("Kp", "Ti", "Td")
+        )
+
+        # 2) Update button colors accordingly
+        if self.pid_available:
+            # We have PID → test sequence disabled, training enabled
+            self.start_sequence_button.config(bg=self.COLOR_DISABLED)
+            self.start_training_button.config(bg=self.COLOR_START)
+        else:
+            # No PID → test sequence enabled, training disabled
+            self.start_sequence_button.config(bg=self.COLOR_START)
+            self.start_training_button.config(bg=self.COLOR_DISABLED)
+        
+        
         self.update_aggressiveness(self.mult.get())
         
         self.update_pid_label()
 
-        if self.connected_power_trainer_address:
+        if self.connected_power_trainer_address and not self.power_client:
             self.log_message(f"Auto-connecting power trainer @ {self.connected_power_trainer_address}…")
             self.power_button.config(bg=self.COLOR_IN_PROCESS)
             self._auto_connect_power(self.connected_power_trainer_address)
 
-        if self.connected_hr_monitor_address:
+        if self.connected_hr_monitor_address and not self.hr_client:
             self.log_message(f"Auto-connecting HR monitor @ {self.connected_hr_monitor_address}…")
             self.hr_button.config(bg=self.COLOR_IN_PROCESS)
             self._auto_connect_hr(self.connected_hr_monitor_address)
