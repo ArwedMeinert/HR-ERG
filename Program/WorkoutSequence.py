@@ -28,6 +28,7 @@ class Workout:
         self.log = log or (lambda msg: None)
         self.get_target_hr=get_target_hr
         self.get_run=get_run
+        self.start_up_time=60
 
         if get_pid_params is not None:
             kp, Ti, Td = get_pid_params()
@@ -90,6 +91,12 @@ class Workout:
                 self.Kd=self.kp*Td
                 self.pid.tunings=(self.kp,self.Ki,self.Kd)
             elapsed = time.time() - self._start_time
+            if elapsed < self.start_up_time:
+                upper_limit = self.ftp * (0.4 + 0.9 * (elapsed / self.start_up_time))  # goes from 0.4 to 1.3*FTP
+            else:
+                upper_limit = self.ftp * 1.3
+            self.pid.output_limits = (0.3 * self.ftp, upper_limit)
+            
             self.set_elapsed(elapsed)
             target_hr=self.get_target_hr()
             current_hr=self.get_current_hr()

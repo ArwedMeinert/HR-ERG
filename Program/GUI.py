@@ -210,6 +210,7 @@ class FitnessApp:
         # Stats display (including cadence)
         stats = [
             ("Elapsed Time:", self.elapsed_time),
+            
             ("Average Power:", self.avg_power),
             ("Current Power:", self.current_power),
             ("Current Heart Rate:", self.current_hr),
@@ -312,6 +313,7 @@ class FitnessApp:
 
         else:
             self.start_training_button.config(text="Start Training", bg=self.COLOR_START)
+            self.cum_activities+=1
             self.log_message("Training stopped")
 
     def update_sequence_button_color(self):
@@ -433,7 +435,8 @@ class FitnessApp:
                 "hr_monitor": self.connected_hr_monitor_name.get() if self.connected_hr_monitor_name else "",
                 "hr_monitor_address": self.connected_hr_monitor_address if hasattr(self, "connected_hr_monitor_address") else "",
                 "pid_params": self.pid_params_import,
-                "aggressiveness": self.mult.get()
+                "aggressiveness": self.mult.get(),
+                "amount_workouts":self.cum_activities if self.cum_activities else 0
             }
 
             os.makedirs(CONFIG_DIR, exist_ok=True)  # Ensure directory exists
@@ -537,6 +540,7 @@ class FitnessApp:
         self.hr_label.config(text=f"{self.target_hr} bpm")
         self.connected_power_trainer_address=config.get("power_trainer_address","")
         self.connected_hr_monitor_address=config.get("hr_monitor_address","")
+        self.cum_activities=config.get("amount_workouts",0)
         
         self.pid_available = not any(
             self.pid_params_import[k] < 0

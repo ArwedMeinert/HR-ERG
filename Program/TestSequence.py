@@ -55,12 +55,16 @@ class TestSequence:
             await asyncio.sleep(1)
             self.log_sample()
             hr = self.get_current_hr()
+            remaining = time_duration - (time.time() - last_change)
+            self.log(f"time remaining is {remaining}")
             if abs(hr - hr0) > self.hr_tol:
                 hr0 = hr
                 last_change = time.time()
                 print(f"  HR jumped to {hr} → resetting timer")
+                self.log(f"HR jumped to {hr} → resetting timer")
             elif time.time() - last_change >= time_duration:
                 print(f"  HR stabilized at {hr} bpm")
+                self.log(f"HR stabilized at {hr} bpm")
                 return hr,last_change
 
     async def run(self):
