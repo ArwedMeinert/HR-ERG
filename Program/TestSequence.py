@@ -41,7 +41,7 @@ class TestSequence:
             self.log_sample()
             cadence=self.get_current_cadence()
             if cadence>60:
-                print(f"Cadence is {cadence} RPM. Starting Test")
+                print(f"Cadence is {cadence:.0f} RPM. Starting Test")
                 return True
             
         
@@ -56,15 +56,15 @@ class TestSequence:
             self.log_sample()
             hr = self.get_current_hr()
             remaining = time_duration - (time.time() - last_change)
-            self.log(f"time remaining is {remaining}")
+            self.log(f"time remaining is {remaining:.0f}")
             if abs(hr - hr0) > self.hr_tol:
                 hr0 = hr
                 last_change = time.time()
                 print(f"  HR jumped to {hr} → resetting timer")
-                self.log(f"HR jumped to {hr} → resetting timer")
+                self.log(f"HR jumped to {hr:.0f} → resetting timer")
             elif time.time() - last_change >= time_duration:
                 print(f"  HR stabilized at {hr} bpm")
-                self.log(f"HR stabilized at {hr} bpm")
+                self.log(f"HR stabilized at {hr:.0f} bpm")
                 return hr,last_change
 
     async def run(self):

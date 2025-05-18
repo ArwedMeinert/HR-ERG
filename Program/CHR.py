@@ -26,12 +26,19 @@ def fit_pt2_from_samples(data, plot=True):
     # initial guess
     K_guess = data["hr_after_ftp"] - data["hr_after_zone2"]
     p0 = [K_guess, 0.05, 0.7]
-    params, _ = curve_fit(pt2, t, hr_step, p0=p0, bounds=(0, np.inf))
+    params, _ = curve_fit(
+    pt2, t, hr_step,
+    p0=p0,
+    bounds=(0, np.inf),
+    method='trf',
+    max_nfev=2000
+)
+
     K_fit, wn, zeta = params
 
     # 3) tangent method to find L and T
     # generate smooth fit curve
-    t_fit = np.linspace(t[0], t[-1], 1000)
+    t_fit = np.linspace(t[0], t[-1], 5000)
     hr_fit = pt2(t_fit, *params) + hr0
 
     # derivative
