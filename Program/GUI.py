@@ -91,6 +91,7 @@ class FitnessApp:
         self._last_crank_event_time = None   # type: int 
         self.current_cadence=tk.StringVar(value="0 RPM")
         self.mult=tk.DoubleVar(value=0)
+        self.mult_val=1
         self.training_active = False  # Add this in __init__
         self.pid_params_import = {"Kp": -1, "Ti": -1, "Td": -1}
         self.build_gui()
@@ -99,11 +100,11 @@ class FitnessApp:
         self.hr_connected=False
         self.power_connected=False
         
-        mult_val = self.mult.get()
+        self.mult_val = self.mult.get()
         self.pid_params={
-                "Kp": self.pid_params_import["Kp"]*self.kp_mult*mult_val,
-                "Ti": self.pid_params_import["Ti"]*self.ki_mult*mult_val,
-                "Td": self.pid_params_import["Td"]*self.kd_mult*mult_val
+                "Kp": self.pid_params_import["Kp"]*self.kp_mult*self.mult_val,
+                "Ki": self.pid_params_import["Ti"]/self.pid_params_import["Kp"]*self.ki_mult*self.mult_val,
+                "Kd": self.pid_params_import["Td"]*self.pid_params_import["Kp"]*self.kd_mult*self.mult_val
             }
         self.update_pid_label()
         
@@ -234,10 +235,11 @@ class FitnessApp:
             self.mult.set(val)
             self.pid_params={
                 "Kp": self.pid_params_import["Kp"]*self.kp_mult*val,
-                "Ti": self.pid_params_import["Ti"]*self.ki_mult*val,
-                "Td": self.pid_params_import["Td"]*self.kd_mult*val
+                "Ki": self.pid_params_import["Ti"]/self.pid_params_import["Kp"]*self.ki_mult*val,
+                "Kd": self.pid_params_import["Td"]*self.pid_params_import["Kp"]*self.kd_mult*val
             }
             self.update_pid_label()
+            self.mult_val=val
             self.aggressiveness_label.config(text=f"Aggressiveness: {val:.2f}x")
             
     def log_message(self, message):
@@ -265,7 +267,7 @@ class FitnessApp:
             
             self.start_training_button.config(text="Training Running", bg=self.COLOR_ACTION)
             self.log_message("Training started")
-            print(f"Kp: {self.pid_params['Kp']}, Ki: {self.pid_params['Ti']}, Kd: {self.pid_params['Td']}")
+            print(f"Kp: {self.pid_params['Kp']}, Ki: {self.pid_params['Ki']}, Kd: {self.pid_params['Kd']}")
 
             # make sure we have a client
             if not hasattr(self, "power_client"):
@@ -274,7 +276,7 @@ class FitnessApp:
                 return
 
             # helper getters
-            get_pid= lambda: [self.pid_params["Kp"],self.pid_params["Ti"],self.pid_params["Td"]]
+            get_pid= lambda: [self.pid_params["Kp"],self.pid_params["Ki"],self.pid_params["Kd"]]
             get_hr = lambda: int(self.current_hr.get().split()[0] or 0)
             get_pow = lambda: int(self.current_power.get().split()[0] or 0)
             get_cad = lambda: int(self.current_cadence.get().split()[0] or 0)
@@ -335,8 +337,14 @@ class FitnessApp:
         self.ftp_label.config(text=f"{self.ftp} W")
 
     def update_pid_label(self):
+        
+        self.pid_params={
+                "Kp": self.pid_params_import["Kp"]*self.kp_mult*self.mult_val,
+                "Ki": self.pid_params_import["Ti"]/self.pid_params_import["Kp"]*self.ki_mult*self.mult_val,
+                "Kd": self.pid_params_import["Td"]*self.pid_params_import["Kp"]*self.kd_mult*self.mult_val
+            }
         p = self.pid_params
-        self.pid_label.config(text=f"PID: Kp={p['Kp']:.4f}, Ki={p['Ti']/p['Kp']:.1f}, Kd={p['Kp']*p['Td']:.1f}")
+        self.pid_label.config(text=f"PID: Kp={p['Kp']:.4f}, Ki={p['Ki']:.1f}, Kd={p['Kd']:.1f}")
     
     # HR target controls
     def increase_hr(self):
@@ -396,24 +404,25 @@ class FitnessApp:
 
             # 1) Store the new PID parameters
             self.pid_params_import = pid_params
-            
+
             # 2) Update the on-screen PID display on the main thread
             self.root.after(0, self.update_pid_label)
 
-            # 3) Mark PID available & enable buttons
-            self.pid_available = True
-            self.root.after(0, lambda: self.start_sequence_button.config(bg=self.COLOR_DISABLED))
-            self.root.after(0, lambda: self.start_training_button.config(bg=self.COLOR_START))
-            self.root.after(0, lambda:self.ftp_min_button.config(bg=self.COLOR_DISABLED))
-            self.root.after(0, lambda:self.ftp_max_button.config(bg=self.COLOR_DISABLED))
-            self.root.after(0, lambda:self.hr_min_button.config(bg=self.COLOR_START))
-            self.root.after(0, lambda:self.hr_max_button.config(bg=self.COLOR_START))
+            # 3) Mark PID available & enable buttons on the main thread
+            for btn, color in [
+                (self.start_sequence_button, self.COLOR_DISABLED),
+                (self.start_training_button, self.COLOR_START),
+                (self.ftp_min_button, self.COLOR_DISABLED),
+                (self.ftp_max_button, self.COLOR_DISABLED),
+                (self.hr_min_button, self.COLOR_START),
+                (self.hr_max_button, self.COLOR_START),
+            ]:
+                self.root.after(0, lambda b=btn, c=color: b.config(bg=c))
 
             # 4) Save them immediately in the user config
             self.save_config()
-            self.update_pid_label()
+            self.pid_available=True
 
-        # Schedule that combined task
         run_async_task(do_sequence_and_update())
         
 
@@ -697,7 +706,7 @@ class FitnessApp:
             self.start_training_button.config(bg=self.COLOR_START)
             self.log_message("You can start the training")
         elif self.hr_connected and self.power_connected and not self.pid_available:
-            self.start_sequence_button(bg=self.COLOR_START)
+            self.start_sequence_button.config(bg=self.COLOR_START)
             self.log_message("Please run the test sequence first!")
 
     

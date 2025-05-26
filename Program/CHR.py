@@ -101,7 +101,7 @@ def fit_pt2_from_samples(data, plot=True):
 if __name__=="__main__":
     import json
 
-    with open("StepResponseTests/sequence_results.json") as f:
+    with open("StepResponseTests/Test_Sequence_2025-05-22_17-49-46.json") as f:
         data = json.load(f)
 
     fit_result = fit_pt2_from_samples(data)

@@ -5,6 +5,7 @@ from simple_pid import PID
 import Plotter
 from datetime import datetime
 from pathlib import Path
+import math
 
 class Workout:
     def __init__(self, power_client, get_current_hr, get_current_power, get_current_cadence,
@@ -29,17 +30,22 @@ class Workout:
         self.get_target_hr=get_target_hr
         self.get_run=get_run
         self.start_up_time=60
+        self._smoothed_hr = None
+        self._alpha = 0.6  # Smoothing factor (tweak between 0.1 and 0.5)
+
+        
+
 
         if get_pid_params is not None:
-            kp, Ti, Td = get_pid_params()
+            kp, Ki, Kd = get_pid_params()
         else:
-            kp, Ti, Td = PID_params['Kp'], PID_params['Ti'], PID_params['Td']
+            kp, Ki, Kd = PID_params['Kp'], PID_params['Ki'], PID_params['Kd']
 
         self.kp = kp
-        self.Ki = kp / Ti
-        self.Kd = kp * Td
+        self.Ki = Ki
+        self.Kd = Kd
         self.pid = PID(self.kp, self.Ki, self.Kd, setpoint=self.get_target_hr())
-
+        #self.pid.integral_limits = (-2, 2)  # adjust based on your output range
         print(f"Kp: {self.pid.Kp:.4f}, Ki: {self.pid.Ki:.4f}, Kd: {self.pid.Kd:.4f}")
         self.pid.output_limits = (0.3*self.ftp, 1.3*self.ftp)
 
@@ -81,35 +87,79 @@ class Workout:
         await self.enable_erg_control()
         self.log(f"ERG activated")
         await asyncio.sleep(1)
-        
+        self._start_time = time.time()
+                # Setup for target HR ramping
+        true_target_hr = self.get_target_hr()
+        start_hr = self.get_current_hr()
+        ramp_duration = 150  # seconds to ramp from start_hr to target_hr
+        ramp_start_time = time.time()
+
         while self.get_run():
             # compute elapsed
             if self.get_pid_params is not None:
-                [kp,Ti,Td]=self.get_pid_params()
+                [kp,Ki,Kd]=self.get_pid_params()
                 self.kp=kp
-                self.Ki=self.kp/Ti
-                self.Kd=self.kp*Td
+                self.Ki=Ki
+                self.Kd=Kd
                 self.pid.tunings=(self.kp,self.Ki,self.Kd)
             elapsed = time.time() - self._start_time
             if elapsed < self.start_up_time:
-                upper_limit = self.ftp * (0.4 + 0.9 * (elapsed / self.start_up_time))  # goes from 0.4 to 1.3*FTP
+                upper_limit = self.ftp * (0.4 + 0.7 * (elapsed / self.start_up_time))  # goes from 0.4 to 1.3*FTP
             else:
-                upper_limit = self.ftp * 1.3
+                upper_limit = self.ftp * 1.1
             self.pid.output_limits = (0.3 * self.ftp, upper_limit)
             
+            # Raw HR
+            raw_hr = self.get_current_hr()
+
+            # Apply exponential moving average smoothing
+            if self._smoothed_hr is None:
+                self._smoothed_hr = raw_hr  # Init on first run
+            else:
+                self._smoothed_hr = self._alpha * raw_hr + (1 - self._alpha) * self._smoothed_hr
+            print(self._smoothed_hr)
+
             self.set_elapsed(elapsed)
-            target_hr=self.get_target_hr()
-            current_hr=self.get_current_hr()
+            now = time.time()
+            elapsed_ramp = time.time() - ramp_start_time
+
+            def easing_expo_out(t, T, k=3):
+                """Eases quickly at the start and slows near the end."""
+                return 1 - math.exp(-k * t / T)
+
+            if elapsed_ramp < ramp_duration:
+                factor = easing_expo_out(elapsed_ramp, ramp_duration)
+                target_hr = start_hr + (true_target_hr - start_hr) * factor
+            else:
+                target_hr = true_target_hr
+
+            current_hr = self._smoothed_hr
+
+            error = abs(target_hr - current_hr)
+            if error < 1:
+                current_hr = target_hr
+
+
             # update running average
             pw = self.get_current_power()
+            
+
+
             self._power_accumulator += pw
             self._power_count   += 1
             avg = self._power_accumulator / self._power_count
             self.set_avg_power(avg)
 
             # PID step
+            # PID step
             self.pid.setpoint = target_hr
             power = self.pid(current_hr)
+
+            # Output smoothing
+            self._last_power = self._last_power if hasattr(self, "_last_power") else power
+            smoothed_power = 0.4 * power + 0.6 * self._last_power
+            self._last_power = smoothed_power
+
             #if pw-power>self.max_step:
             #    power=pw-self.max_step
             #elif pw-power<self.max_step:
@@ -126,7 +176,8 @@ class Workout:
                 # maybe re‐arm to previous target power on next cycle
                 self.log("Cadence recovered. ERG re‐enabled.")
             else:
-                await self.set_power(int(power))
+                await self.set_power(int(smoothed_power))
+
                 self.log(f"Setting power to {power:.0f}W")
 
             self.log_sample()

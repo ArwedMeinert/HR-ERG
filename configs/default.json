@@ -1,14 +1,15 @@
 {
-    "ftp": 200,
+    "ftp": 380,
     "target_hr": 140,
     "power_trainer": "Zwift Hub",
     "power_trainer_address": "EA:4F:F7:E9:1A:6B",
-    "hr_monitor": "fenix 7X",
+    "hr_monitor": "E0:48:24:13:6E:92",
     "hr_monitor_address": "E0:48:24:13:6E:92",
     "pid_params": {
-        "Kp": -1,
-        "Ti": -1,
-        "Td": -1
+        "Kp": 7.08913787332671,
+        "Ti": 30,
+        "Td": 2.540247781520761
     },
-    "aggressiveness": 1.0
+    "aggressiveness": 1.005813953488372,
+    "amount_workouts": 7
 }
