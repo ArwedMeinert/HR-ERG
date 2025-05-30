@@ -1,6 +1,10 @@
 # Heart Rate ERG Mode
 This project implements a heart rate–based control mode for smart cycling trainers—similar in concept to the traditional ERG mode, but targeting a steady heart rate (HR) instead of fixed power.
 ___
+Video:
+
+[Watch on YouTube](https://youtu.be/ws2G1LzrzRw)
+___
 ## Problem
 During long endurance rides at low or steady power, the heart rate often drifts due to fatigue, hydration, or minor disturbances such as talking, adjusting position, or eating. Traditional ERG mode, which fixes the target power, does not account for these effects. The goal of this project is to create a heart rate–controlled feedback loop that adjusts power in real time to maintain a consistent cardiovascular load.
 ## Solution
